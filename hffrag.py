@@ -9,9 +9,9 @@ from Sum import Sum
 
 MASKVAL = -999
 MAXTRACKS = 8
-BATCHSIZE = 128
+BATCHSIZE = 64
 EPOCHS = 1000
-MAXEVENTS = 100000
+MAXEVENTS = 99999999999999999
 # VALFACTOR = 10
 LR = 1e-3
 
@@ -52,6 +52,11 @@ branches = \
   , "AnalysisTracks_pt"
   , "AnalysisTracks_eta"
   , "AnalysisTracks_phi"
+  , "AnalysisTracks_z0sinTheta"
+  , "AnalysisTracks_d0sig"
+  , "AnalysisTracks_d0"
+  , "AnalysisTracks_d0sigPV"
+  , "AnalysisTracks_d0PV"
   ]
 
 
@@ -165,6 +170,9 @@ events = \
   features[awkward.sum(features["AnalysisAntiKt4TruthJets_pt"] > 25000, axis=1) > 0]
 
 jets = events[jetfeatures][:,0]
+
+print("number of jets to train on:")
+print(len(jets))
 tracks = events[trackfeatures]
 
 matchedtracks = tracks[matchTracks(jets, tracks)]
@@ -253,7 +261,6 @@ def buildModel(tlayers, jlayers, ntargets):
     outputs = layers.Dense(nodes, activation='relu')(outputs)
     outputs = layers.BatchNormalization()(outputs)
 
-
   outputs = layers.Dense(ntargets + ntargets*(ntargets+1)//2)(outputs)
 
   return \
@@ -269,13 +276,13 @@ def LogNormal1D(true, meanscovs):
   ntargets = true.shape[1]
   means = meanscovs[:,:ntargets]
   # ensure diagonal is positive
-  diag = keras.backend.exp(meanscovs[:,ntargets:2*ntargets])
+  logsigma = meanscovs[:,ntargets:2*ntargets]
   rest = meanscovs[:,2*ntargets:]
 
   # TODO
   # build matrix
 
-  return ((means[:,0] - true[:,0]) / diag[:,0])**2 + keras.backend.log(diag[:,0])
+  return ((means[:,0] - true[:,0])**2 / (2*keras.backend.exp(logsigma[:,0])**2)) + logsigma[:,0]
 
 
 model = buildModel([len(trackfeatures)] + tracklayers, jetlayers, 1)
@@ -287,4 +294,11 @@ model.compile \
   , optimizer = keras.optimizers.Adam(learning_rate=LR)
   )
 
-model.fit(tracks, bhads, epochs=EPOCHS, batch_size=BATCHSIZE)
+for i in range(EPOCHS):
+  model.fit(tracks, bhads, batch_size=BATCHSIZE)
+
+  pred = model.predict(tracks[:10])
+  
+  print(pred[:,0] - bhads[:10])
+  print(numpy.exp(pred[:,1]))
+  print((pred[:,0] - bhads[:10]) / numpy.exp(pred[:,1]))
