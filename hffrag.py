@@ -5,8 +5,6 @@ import matplotlib.figure as figure
 import keras
 import keras.layers as layers
 from Sum import Sum
-import tensorflow_probability as tfp
-tfd = tfp.distributions
 
 
 MASKVAL = -999
