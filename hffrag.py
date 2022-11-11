@@ -295,6 +295,7 @@ model.compile \
   )
 
 for i in range(EPOCHS):
+  print("epoch number:", i)
   model.fit(tracks, bhads, batch_size=BATCHSIZE)
 
   pred = model.predict(tracks[:10])
