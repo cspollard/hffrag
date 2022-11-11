@@ -13,9 +13,7 @@ MASKVAL = -999
 MAXTRACKS = 8
 BATCHSIZE = 128
 EPOCHS = 1000
-CLASSWEIGHT = 1
-REGWEIGHT = 1
-MAXEVENTS = 1000000
+MAXEVENTS = 100000
 # VALFACTOR = 10
 LR = 1e-3
 
@@ -232,7 +230,7 @@ def binneddensity(xs, binning, label=None, xlabel=None, ylabel="binned probabili
   plt.set_xlabel(xlabel)
   plt.set_ylabel(ylabel)
 
-  return fig/exit
+  return fig
 
 
 # here is where the training starts.
@@ -258,7 +256,6 @@ def buildModel(tlayers, jlayers, ntargets):
     outputs = layers.BatchNormalization()(outputs)
 
 
-  # we only want one output -- for now!
   outputs = layers.Dense(ntargets + ntargets*(ntargets+1)//2)(outputs)
 
   return \
