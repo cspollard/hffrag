@@ -3,16 +3,20 @@ import awkward
 import numpy
 import matplotlib.figure as figure
 import keras
+import keras.layers as layers
+from Sum import Sum
+import tensorflow_probability as tfp
+tfd = tfp.distributions
 
 
 MASKVAL = -999
 MAXTRACKS = 8
 BATCHSIZE = 128
-EPOCHSIZE = 100000
+EPOCHS = 1000
 CLASSWEIGHT = 1
 REGWEIGHT = 1
-MAXEVENTS = 1000
-VALFACTOR = 10
+MAXEVENTS = 1000000
+# VALFACTOR = 10
 LR = 1e-3
 
 # this opens up the root file and points to the "CharmAnalysis" tree inside.
@@ -60,16 +64,17 @@ jetfeatures = \
   [ "AnalysisAntiKt4TruthJets_pt"
   , "AnalysisAntiKt4TruthJets_eta"
   , "AnalysisAntiKt4TruthJets_phi"
+  , "AnalysisAntiKt4TruthJets_ghostB_pt"
   ]
 
 # true b-hadron information
 # these b-hadrons are inside the truth jets
-bhadfeatures = \
-  [ "AnalysisAntiKt4TruthJets_ghostB_pt"
-  , "AnalysisAntiKt4TruthJets_ghostB_eta"
-  , "AnalysisAntiKt4TruthJets_ghostB_phi"
+# bhadfeatures = \
+#   [ "AnalysisAntiKt4TruthJets_ghostB_pt"
+#   , "AnalysisAntiKt4TruthJets_ghostB_eta"
+#   , "AnalysisAntiKt4TruthJets_ghostB_phi"
   # , "AnalysisAntiKt4TruthJets_ghostB_m"
-  ]
+  # ]
   
 
 # reconstructed track information
@@ -80,7 +85,7 @@ trackfeatures = \
   ]
 
 # read in the requested branches from the file
-features = tree.arrays(jetfeatures + bhadfeatures + trackfeatures, entry_stop=MAXEVENTS)
+features = tree.arrays(jetfeatures + trackfeatures, entry_stop=MAXEVENTS)
 
 
 def matchTracks(jets, trks):
@@ -160,8 +165,6 @@ def flatten1(xs, maxsize=-1):
   return awkward.zip(ys)
 
 
-
-from numpy.lib.recfunctions import structured_to_unstructured
 events = \
   features[awkward.sum(features["AnalysisAntiKt4TruthJets_pt"] > 25000, axis=1) > 0]
 
@@ -171,11 +174,18 @@ tracks = events[trackfeatures]
 matchedtracks = tracks[matchTracks(jets, tracks)]
 matchedtracks = flatten1(matchedtracks, MAXTRACKS)
 
-jets = structured_to_unstructured(jets)
+bjets = awkward.sum(jets["AnalysisAntiKt4TruthJets_ghostB_pt"] > 5000, axis=1) > 0
+jets = jets[bjets]
+bhads = jets["AnalysisAntiKt4TruthJets_ghostB_pt"][:,0]
+matchedtracks = matchedtracks[bjets]
+
+from numpy.lib.recfunctions import structured_to_unstructured
+jets = structured_to_unstructured(jets[jetfeatures[:-1]])
 matchedtracks = structured_to_unstructured(matchedtracks)
 
 jets = ptetaphi2pxpypz(jets).to_numpy()
 tracks = ptetaphi2pxpypz2(matchedtracks.to_numpy())
+bhads = bhads.to_numpy()
 
 
 # returns a fixed set of bin edges
@@ -249,26 +259,31 @@ def buildModel(tlayers, jlayers, ntargets):
 
 
   # we only want one output -- for now!
-  outmean = layers.Dense(ntargets)(outputs)
-  outcov = layers.Dense(ntargets*(ntargets+1)//2)(outputs)
+  outputs = layers.Dense(ntargets + ntargets*(ntargets+1)//2)(outputs)
 
   return \
     keras.Model \
     ( inputs = inputs
-    , outputs = { "means" : outmean, "covs" : outcov }
+    , outputs = outputs
     )
 
 
 # TODO
 # this ignores any dimension beyond the first!
 def LogNormal1D(true, meanscovs):
-  means = meanscovs["means"]
-  covs = meanscovs["covs"]
+  ntargets = true.shape[1]
+  means = meanscovs[:,:ntargets]
+  # ensure diagonal is positive
+  diag = keras.backend.exp(meanscovs[:,ntargets:2*ntargets])
+  rest = meanscovs[:,2*ntargets:]
 
-  return tfd.MultivariateNormalTriL(loc=means[:,:1], scale_tril=covs[:,:1])
+  # TODO
+  # build matrix
+
+  return ((means[:,0] - true[:,0]) / diag[:,0])**2 + keras.backend.log(diag[:,0])
 
 
-model = buildModel([len(trackfeatures)] + tracklayers, jetlayers)
+model = buildModel([len(trackfeatures)] + tracklayers, jetlayers, 1)
 
 model.summary()
 
@@ -277,4 +292,4 @@ model.compile \
   , optimizer = keras.optimizers.Adam(learning_rate=LR)
   )
 
-model.fit()
+model.fit(tracks, bhads, epochs=EPOCHS, batch_size=BATCHSIZE)
